@@ -9,21 +9,30 @@ st.set_page_config(page_title="HR Analytics", layout="wide")
 st.title("🏢 HR Analytics & Prediction System")
 #load the saved files
 try:
-     model = joblib.load('attrition_model.pkl')
-     scaler = joblib.load('scaler.pkl')
-     features = joblib.load('features_list.pkl')
-     df_raw = pd.read_csv(r"D:\Employee Attrition\Employee-Attrition.csv")
+     model = joblib.load('models/attrition_model.pkl')
+     scaler = joblib.load('models/scaler.pkl')
+     features = joblib.load('models/features_list.pkl')
+     df_raw = pd.read_csv(r"data\raw\Employee-Attrition.csv")
      
      # Load the Test Results (The Report Card)
-     test_data = pd.read_csv(r"D:\Employee Attrition\test_results_selected_features.csv")
-     leaderboard = pd.read_csv(r"D:\Employee Attrition\Model_Comparison.csv")
+     test_data = pd.read_csv(r"data\processed\test_results_selected_features.csv")
+     leaderboard = pd.read_csv(r"data\processed\Model_Comparison.csv")
 except:
     st.error("Files not found! Please run 'train_final.py' first.")
     st.stop()
 
+# Load regression model (optional — only needed for Promotion tab)
+try:
+    promo_model    = joblib.load('models/promotion_model.pkl')
+    promo_scaler   = joblib.load('models/promotion_scaler.pkl')
+    promo_features = joblib.load('models/promotion_features.pkl')
+    promo_ready = True
+except:
+    promo_ready = False
+
 #create tabs
 
-tab1, tab2, tab3 = st.tabs(["📉 Attrition Report", "🤝 Diversity Report", "🔮 Prediction Tool"])
+tab1, tab2, tab3, tab4 = st.tabs(["📉 Attrition Report", "🤝 Diversity Report", "🔮 Prediction Tool", "📈 Promotion Predictor"])
 
 with tab1:
     st.header("Company Overview")
@@ -136,6 +145,15 @@ with tab3:
     st.markdown("---")
         # --- PART B: USER INPUT FOR PREDICTION ---
     st.header("Predict Employee Risk")
+
+    st.write("**What does this predict?**")
+    st.write(
+        "Enter an employee's profile below. The model will assess whether this employee is at **High Risk of leaving "
+        "the company**. It analyses key factors like income, overtime, job satisfaction, and tenure to produce a "
+        "risk score. HR can use this to proactively intervene — through salary reviews, role changes, or one-on-one "
+        "check-ins — before the employee decides to quit."
+    )
+    st.info("Example: A risk score of **85%** means this employee has an 85% probability of leaving → flag for immediate HR attention.")
     
     # Creating a container box
     with st.container():
@@ -230,3 +248,73 @@ with tab3:
                 st.success(f"✅ LOW RISK / SAFE (Confidence: {risk_score:.0f}%)")
                 st.write(f"👉 **Chance of Staying:** {stay_score:.0f}% (High Stability)")
                 st.write("**Reason:** Key factors suggest this employee is **stable and likely to stay**.")
+
+with tab4:
+    st.header("📈 Promotion Gap Predictor")
+    st.write("**What does this predict?**")
+    st.write(
+        "Enter an employee's profile below. The model will estimate **how many years they have been waiting "
+        "without a promotion**. A high number means they are likely overdue — these employees are at higher "
+        "risk of feeling undervalued and leaving the company. HR can use this to proactively schedule "
+        "promotion reviews before the employee disengages."
+    )
+    st.info("Example: A prediction of **6 years** means this employee has probably gone 6 years without a promotion → flag for immediate review.")
+
+    if not promo_ready:
+        st.warning("⚠️ Regression model not found. Please run **Train_regression.py** first.")
+    else:
+        st.markdown("---")
+
+        p_left, p_right = st.columns(2)
+
+        with p_left:
+            st.subheader("⏱️ Tenure & Role")
+            p_years_in_role     = st.number_input("Years in Current Role",       min_value=0, max_value=18, value=3)
+            p_years_with_mgr    = st.number_input("Years with Current Manager",  min_value=0, max_value=17, value=3)
+            p_years_at_company  = st.number_input("Years at Company",            min_value=0, max_value=40, value=5)
+            p_total_working     = st.number_input("Total Working Years",         min_value=0, max_value=40, value=8)
+            p_num_companies     = st.number_input("No. of Companies Worked",     min_value=0, max_value=9,  value=2)
+
+        with p_right:
+            st.subheader("🎓 Role & Performance")
+            p_job_level         = st.slider("Job Level (1=Entry, 5=Executive)",  1, 5, 2, key="promo_job_level")
+            p_education         = st.slider("Education (1=Below College, 5=PhD)", 1, 5, 3, key="promo_education")
+            p_performance       = st.slider("Performance Rating (1-4)",           1, 4, 3, key="promo_performance")
+            p_job_involvement   = st.slider("Job Involvement (1-4)",              1, 4, 3, key="promo_job_involvement")
+            p_work_life         = st.slider("Work-Life Balance (1-4)",            1, 4, 3, key="promo_work_life")
+            p_overtime          = st.selectbox("OverTime?", ["No", "Yes"], key="promo_overtime")
+            p_overtime_encoded  = 1 if p_overtime == "Yes" else 0
+
+        st.markdown("---")
+        if st.button("🔍 Predict Promotion Gap", use_container_width=True):
+
+            # Build input in same order as training features
+            input_data = pd.DataFrame([{
+                'YearsInCurrentRole'  : p_years_in_role,
+                'YearsWithCurrManager': p_years_with_mgr,
+                'JobLevel'            : p_job_level,
+                'Education'           : p_education,
+                'TotalWorkingYears'   : p_total_working,
+                'YearsAtCompany'      : p_years_at_company,
+                'PerformanceRating'   : p_performance,
+                'JobInvolvement'      : p_job_involvement,
+                'WorkLifeBalance'     : p_work_life,
+                'NumCompaniesWorked'  : p_num_companies,
+                'OverTime'            : p_overtime_encoded,
+            }])
+
+            scaled_input   = promo_scaler.transform(input_data[promo_features])
+            predicted_years = promo_model.predict(scaled_input)[0]
+            predicted_years = max(0, round(predicted_years, 1))   # can't be negative
+
+            st.subheader("Prediction Result:")
+            st.metric("Predicted Years Since Last Promotion", f"{predicted_years} years")
+
+            if predicted_years >= 5:
+                st.error(f"🚨 OVERDUE — This employee has likely waited {predicted_years} years without a promotion. HR should review immediately.")
+            elif predicted_years >= 3:
+                st.warning(f"⚠️ AT RISK — {predicted_years} years is approaching overdue. Consider scheduling a review.")
+            else:
+                st.success(f"✅ RECENTLY PROMOTED — Only {predicted_years} years. No immediate action needed.")
+
+            st.caption("Note: Model explains ~28% of the pattern (R²=0.277). Use alongside manager feedback for best results.")
